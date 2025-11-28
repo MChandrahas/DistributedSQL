@@ -2,49 +2,51 @@ package com.dbsql;
 
 import com.dbsql.storage.Constants;
 import com.dbsql.storage.DiskManager;
+import com.dbsql.storage.SlottedPage;
+
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
 
 public class Main {
     public static void main(String[] args) {
-        System.out.println("--- Starting DistributedSQL Storage Test ---");
-        
+        System.out.println("--- Starting DistributedSQL Page Layout Test ---");
+
         String dbFile = "test.db";
         DiskManager diskManager = new DiskManager(dbFile);
 
-        // 1. Create dummy data
-        String message = "Hello, this is a persistent database record!";
-        byte[] rawData = message.getBytes(StandardCharsets.UTF_8);
-        
-        // 2. Fit it into a 4KB Page
-        byte[] page0Data = new byte[Constants.PAGE_SIZE];
-        System.arraycopy(rawData, 0, page0Data, 0, rawData.length);
+        // 1. Create a new empty page
+        byte[] rawPage = new byte[Constants.PAGE_SIZE];
+        SlottedPage page = new SlottedPage(rawPage);
 
-        // 3. Write to Disk (Page 0)
-        System.out.println("Writing to Page 0...");
-        diskManager.writePage(0, page0Data);
+        // 2. Insert User 1
+        String user1 = "ID:1|Name:Chandrahas|Role:Admin";
+        int slot1 = page.insertRecord(user1.getBytes(StandardCharsets.UTF_8));
+        System.out.println("Inserted User 1 at Slot: " + slot1);
 
-        // 4. Write something else to Page 5 (simulating a large DB)
-        byte[] page5Data = new byte[Constants.PAGE_SIZE];
-        String msg2 = "I am far away in Page 5";
-        System.arraycopy(msg2.getBytes(), 0, page5Data, 0, msg2.getBytes().length);
-        System.out.println("Writing to Page 5...");
-        diskManager.writePage(5, page5Data);
-        
-        // 5. Close and Re-open (Simulate a restart)
+        // 3. Insert User 2
+        String user2 = "ID:2|Name:Alice|Role:User";
+        int slot2 = page.insertRecord(user2.getBytes(StandardCharsets.UTF_8));
+        System.out.println("Inserted User 2 at Slot: " + slot2);
+
+        // 4. Save to Disk (Page 0)
+        diskManager.writePage(0, page.toBytes());
         diskManager.close();
-        System.out.println("Database closed. Re-opening...");
-        
-        DiskManager readManager = new DiskManager(dbFile);
-        
-        // 6. Read back Page 0
-        byte[] readBack = readManager.readPage(0);
-        String decoded = new String(readBack, StandardCharsets.UTF_8).trim();
-        System.out.println("Read from Page 0: " + decoded);
 
-        // 7. Read back Page 5
-        byte[] readBack5 = readManager.readPage(5);
-        String decoded5 = new String(readBack5, StandardCharsets.UTF_8).trim();
-        System.out.println("Read from Page 5: " + decoded5);
+        System.out.println("Database closed. Re-opening...");
+
+        // 5. Read Back
+        DiskManager readManager = new DiskManager(dbFile);
+        byte[] loadedRawPage = readManager.readPage(0);
+        SlottedPage loadedPage = new SlottedPage(loadedRawPage);
+
+        // 6. Decode Data
+        System.out.println("Records in page: " + loadedPage.getNumSlots());
+        
+        String rec1 = new String(loadedPage.getRecord(0));
+        System.out.println("Read Slot 0: " + rec1);
+        
+        String rec2 = new String(loadedPage.getRecord(1));
+        System.out.println("Read Slot 1: " + rec2);
+        
+        System.out.println("Free Space Remaining: " + loadedPage.getFreeSpace() + " bytes");
     }
 }
