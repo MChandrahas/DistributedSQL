@@ -59,4 +59,8 @@ public class DiskManager {
             e.printStackTrace();
         }
     }
+
+    public long getFileSize() throws IOException {
+        return dbFile.length();
+    }
 }

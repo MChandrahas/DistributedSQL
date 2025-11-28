@@ -1,6 +1,9 @@
 package com.dbsql.storage;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 public class Table {
     private final DiskManager diskManager;
@@ -9,37 +12,30 @@ public class Table {
 
     public Table(String dbFile) {
         this.diskManager = new DiskManager(dbFile);
-        this.currentPageId = 0;
         
-        // Try to load page 0, or create it if new
+        // RECOVERY LOGIC: Figure out where we left off
         try {
-            // Check if file has data, otherwise start fresh
-            byte[] raw = diskManager.readPage(0);
-            this.currentPage = new SlottedPage(raw);
-        } catch (Exception e) {
-            // File likely empty or new, create fresh page
-            this.currentPage = new SlottedPage(new byte[Constants.PAGE_SIZE]);
+            long fileSize = diskManager.getFileSize();
+            if (fileSize > 0) {
+                // Page IDs are 0-indexed. If size is 8192 (2 pages), last ID is 1.
+                this.currentPageId = (int) (fileSize / Constants.PAGE_SIZE) - 1;
+                byte[] raw = diskManager.readPage(currentPageId);
+                this.currentPage = new SlottedPage(raw);
+            } else {
+                this.currentPageId = 0;
+                this.currentPage = new SlottedPage(new byte[Constants.PAGE_SIZE]);
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to initialize table", e);
         }
     }
 
-    /**
-     * Insert a record into the table. 
-     * If the current page is full, it creates a new one.
-     */
     public void insert(byte[] record) {
         int slotId = currentPage.insertRecord(record);
-
-        // If slotId is -1, the page is full!
         if (slotId == -1) {
-            flushCurrentPage(); // Save the full page to disk
-            
-            // Move to next page
-            currentPageId++; 
-            
-            // Create a fresh page in memory
+            flushCurrentPage();
+            currentPageId++;
             currentPage = new SlottedPage(new byte[Constants.PAGE_SIZE]);
-            
-            // Try insert again on the new page
             currentPage.insertRecord(record);
         }
     }
@@ -49,12 +45,29 @@ public class Table {
     }
 
     public void close() {
-        flushCurrentPage(); // Ensure the last bit of data is saved
+        flushCurrentPage();
         diskManager.close();
     }
-    
-    // Helper to read raw data for testing
-    public DiskManager getDiskManager() {
-        return diskManager;
+
+    /**
+     * FULL TABLE SCAN: Reads every page, every slot.
+     */
+    public List<String> scan() {
+        List<String> results = new ArrayList<>();
+        
+        // Loop through all pages from 0 to current
+        for (int i = 0; i <= currentPageId; i++) {
+            // Load the page from disk
+            byte[] rawPage = diskManager.readPage(i);
+            SlottedPage page = new SlottedPage(rawPage);
+            
+            // Loop through all slots in the page
+            int numSlots = page.getNumSlots();
+            for (int s = 0; s < numSlots; s++) {
+                byte[] record = page.getRecord(s);
+                results.add(new String(record, StandardCharsets.UTF_8));
+            }
+        }
+        return results;
     }
 }
