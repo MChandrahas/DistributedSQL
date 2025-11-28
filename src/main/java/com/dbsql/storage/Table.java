@@ -53,6 +53,9 @@ public class Table {
      * FULL TABLE SCAN: Reads every page, every slot.
      */
     public List<String> scan() {
+        // FIX: Force the current page to save to disk so the scanner can see it!
+        flushCurrentPage(); 
+
         List<String> results = new ArrayList<>();
         
         // Loop through all pages from 0 to current
